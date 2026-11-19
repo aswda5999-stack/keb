@@ -1,11 +1,7 @@
 package com.example.arabicenglishkeyboard
 
 import android.annotation.SuppressLint
-import android.content.Context
-import android.graphics.Color
-import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
-import android.media.AudioManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -15,6 +11,9 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Toast
+import android.media.AudioManager
+import android.content.Context
 
 class KeyboardService : InputMethodService() {
 
@@ -22,15 +21,12 @@ class KeyboardService : InputMethodService() {
     private var shift = false
     private var symbols = false
     private var emojiMode = false
-    private var theme = "light"
+    private var decorationMode = false
 
     private lateinit var keyboard: LinearLayout
-    private lateinit var prefs: android.content.SharedPreferences
+    private lateinit var prefs: Prefs
     private var vibrator: Vibrator? = null
     private var audioManager: AudioManager? = null
-
-    // إحصائيات
-    private var charsTyped = 0
 
     private val arabicRows = listOf(
         listOf("ض", "ص", "ث", "ق", "ف", "غ", "ع", "ه", "خ", "ح", "ج", "د"),
@@ -59,10 +55,13 @@ class KeyboardService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
-        prefs = getSharedPreferences("keyboard_prefs", Context.MODE_PRIVATE)
-        theme = prefs.getString("theme", "light") ?: "light"
+        prefs = Prefs(this)
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        
+        // إنشاء قناة الإشعارات وعرض الإشعار الدائم
+        NotificationHelper.createNotificationChannel(this)
+        NotificationHelper.showNotification(this)
     }
 
     override fun onCreateInputView(): View {
@@ -77,9 +76,12 @@ class KeyboardService : InputMethodService() {
     @SuppressLint("UseSwitchCompatOrMaterialCode")
     private fun renderKeyboard() {
         keyboard.removeAllViews()
-        val colors = getThemeColors(theme)
+        
+        // جلب الثيم الحالي من الإعدادات
+        val colors = Themes.getTheme(prefs.theme)
         keyboard.setBackgroundColor(colors.bg)
 
+        // تحديد الصفوف بناءً على الوضع الحالي
         val rows = when {
             emojiMode -> emojiRows
             symbols -> symbolsRows
@@ -93,12 +95,17 @@ class KeyboardService : InputMethodService() {
                 gravity = Gravity.CENTER
             }
             row.forEach { key ->
-                addKey(rowLayout, if (!isArabic && shift && key.length == 1 && key[0].isLetter()) key.uppercase() else key, colors) {
+                val displayLabel = if (!isArabic && shift && key.length == 1 && key[0].isLetter()) key.uppercase() else key
+                addKey(rowLayout, displayLabel, colors) {
                     when (key) {
                         "⇧" -> { shift = !shift; renderKeyboard() }
                         "⌫" -> deleteCharacter()
                         else -> {
-                            if (emojiMode) typeEmoji(key) else typeText(key)
+                            if (emojiMode) {
+                                currentInputConnection?.commitText(key, 1)
+                            } else {
+                                typeText(key)
+                            }
                         }
                     }
                 }
@@ -131,9 +138,15 @@ class KeyboardService : InputMethodService() {
             emojiMode = false
             renderKeyboard()
         }
+        
+        // زر الزخرفة
+        addKey(bottom, "✨", colors) {
+            decorationMode = !decorationMode
+            Toast.makeText(this, if (decorationMode) "وضع الزخرفة مفعل" else "وضع الزخرفة مغلق", Toast.LENGTH_SHORT).show()
+        }
 
-        addKey(bottom, "مسافة", colors, weight = 4f) {
-            if (!emojiMode) typeText(" ") else typeText(" ")
+        addKey(bottom, "مسافة", colors, weight = 3f) {
+            typeText(" ")
         }
 
         addKey(bottom, "↵", colors) { pressEnter() }
@@ -145,13 +158,12 @@ class KeyboardService : InputMethodService() {
         ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp)
     )
 
-    private fun addKey(row: LinearLayout, label: String, colors: ThemeColors, weight: Float = 1f, action: () -> Unit) {
+    private fun addKey(row: LinearLayout, label: String, colors: Themes.ThemeColors, weight: Float = 1f, action: () -> Unit) {
         val button = Button(this).apply {
             text = label
             textSize = if (label.length > 2) 14f else 18f
             setTextColor(colors.text)
             setBackgroundColor(colors.key)
-            setTypeface(typeface, Typeface.NORMAL)
             isAllCaps = false
             setPadding(0, 0, 0, 0)
             setOnClickListener {
@@ -167,14 +179,15 @@ class KeyboardService : InputMethodService() {
     }
 
     private fun typeText(text: String) {
-        val finalText = if (!isArabic && shift && text.length == 1 && text[0].isLetter()) text.uppercase() else text
-        currentInputConnection?.commitText(finalText, 1)
-        charsTyped++
-        prefs.edit().putInt("chars_typed", prefs.getInt("chars_typed", 0) + 1).apply()
-    }
+        var finalText = if (!isArabic && shift && text.length == 1 && text[0].isLetter()) text.uppercase() else text
+        
+        // تطبيق الزخرفة إذا كان الوضع مفعل
+        if (decorationMode && finalText != " ") {
+             finalText = TextUtils.decorateText(finalText, TextUtils.decorations.random())
+        }
 
-    private fun typeEmoji(emoji: String) {
-        currentInputConnection?.commitText(emoji, 1)
+        currentInputConnection?.commitText(finalText, 1)
+        prefs.incrementChars()
     }
 
     private fun deleteCharacter() {
@@ -192,13 +205,13 @@ class KeyboardService : InputMethodService() {
     }
 
     private fun playSound() {
-        if (prefs.getBoolean("sound", true)) {
+        if (prefs.soundEnabled) {
             audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 0.5f)
         }
     }
 
     private fun vibrate() {
-        if (prefs.getBoolean("vibrate", true)) {
+        if (prefs.vibrateEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator?.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE))
             } else {
@@ -209,17 +222,4 @@ class KeyboardService : InputMethodService() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    // --- الألوان ---
-    data class ThemeColors(val bg: Int, val key: Int, val text: Int)
-
-    private fun getThemeColors(theme: String): ThemeColors {
-        return when (theme) {
-            "dark" -> ThemeColors(Color.rgb(30, 30, 30), Color.rgb(60, 60, 60), Color.WHITE)
-            "green" -> ThemeColors(Color.rgb(200, 230, 200), Color.rgb(150, 200, 150), Color.BLACK)
-            "blue" -> ThemeColors(Color.rgb(200, 220, 240), Color.rgb(150, 180, 220), Color.BLACK)
-            "purple" -> ThemeColors(Color.rgb(230, 200, 240), Color.rgb(200, 150, 220), Color.BLACK)
-            else -> ThemeColors(Color.rgb(225, 229, 235), Color.rgb(250, 250, 250), Color.BLACK)
-        }
-    }
 }
