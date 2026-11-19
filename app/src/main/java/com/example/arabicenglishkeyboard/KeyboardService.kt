@@ -1,154 +1,117 @@
 package com.example.arabicenglishkeyboard
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
 import android.graphics.Color
-import android.graphics.Typeface
-import android.inputmethodservice.InputMethodService
+import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
 
-class KeyboardService : InputMethodService() {
-    private var arabic = true
-    private var upperCase = false
-    private lateinit var keyboard: LinearLayout
+class MainActivity : Activity() {
 
-    private val arabicRows = listOf(
-        listOf("ض", "ص", "ث", "ق", "ف", "غ", "ع", "ه", "خ", "ح", "ج", "د"),
-        listOf("ش", "س", "ي", "ب", "ل", "ا", "ت", "ن", "م", "ك", "ط"),
-        listOf("ئ", "ء", "ؤ", "ر", "لا", "ى", "ة", "و", "ز", "ظ")
-    )
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-    private val englishRows = listOf(
-        listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
-        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l"),
-        listOf("⇧", "z", "x", "c", "v", "b", "n", "m", "⌫")
-    )
-
-    override fun onCreateInputView(): View {
-        keyboard = LinearLayout(this).apply {
+        val scroll = ScrollView(this)
+        val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(4, 8, 4, 8)
-            setBackgroundColor(Color.rgb(225, 229, 235))
-        }
-        renderKeyboard()
-        return keyboard
-    }
-
-    private fun renderKeyboard() {
-        keyboard.removeAllViews()
-
-        val rows = if (arabic) arabicRows else englishRows
-
-        rows.forEachIndexed { index, row ->
-            val rowLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-            }
-
-            row.forEach { key ->
-                addKey(rowLayout, key) {
-                    when (key) {
-                        "⇧" -> {
-                            upperCase = !upperCase
-                            renderKeyboard()
-                        }
-                        "⌫" -> deleteCharacter()
-                        else -> {
-                            val text =
-                                if (!arabic && upperCase) key.uppercase() else key
-                            typeText(text)
-                        }
-                    }
-                }
-            }
-
-            keyboard.addView(
-                rowLayout,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(if (index == 1) 52 else 50)
-                )
-            )
+            setPadding(48, 96, 48, 48)
+            setBackgroundColor(Color.rgb(245, 247, 250))
         }
 
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val title = TextView(this).apply {
+            text = "كيبورد عربي إنجليزي\n(النسخة الاحترافية 2.0)"
+            textSize = 24f
             gravity = Gravity.CENTER
+            setTextColor(Color.rgb(33, 37, 41))
         }
 
-        addKey(bottom, if (arabic) "EN" else "ع") {
-            arabic = !arabic
-            upperCase = false
-            renderKeyboard()
+        val info = TextView(this).apply {
+            text = "مرحباً بك! لتشغيل الكيبورد:\n1. اضغط تفعيل لوحة المفاتيح\n2. اخترها من قائمة لوحات المفاتيح."
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(Color.rgb(73, 80, 87))
+            setPadding(0, 32, 0, 32)
         }
-        addKey(bottom, "؟123") { typeText("123") }
-        addKey(bottom, "،") { typeText(if (arabic) "،" else ",") }
-        addKey(bottom, "مسافة", weight = 4f) { typeText(" ") }
-        addKey(bottom, ".") { typeText(".") }
-        addKey(bottom, "↵") { pressEnter() }
 
-        keyboard.addView(
-            bottom,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(54)
-            )
-        )
-    }
-
-    private fun addKey(
-        row: LinearLayout,
-        label: String,
-        weight: Float = 1f,
-        action: () -> Unit
-    ) {
-        val button = Button(this).apply {
-            text = label
-            textSize = if (label.length > 2) 13f else 18f
-            setTextColor(Color.BLACK)
-            setTypeface(typeface, Typeface.NORMAL)
+        val settingsButton = Button(this).apply {
+            text = "تفعيل لوحة المفاتيح"
             isAllCaps = false
-            setPadding(0, 0, 0, 0)
-            setOnClickListener { action() }
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
         }
 
-        val params = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            weight
-        )
-        params.setMargins(dp(2), dp(2), dp(2), dp(2))
-        row.addView(button, params)
-    }
-
-    private fun typeText(text: String) {
-        currentInputConnection?.commitText(text, 1)
-    }
-
-    private fun deleteCharacter() {
-        currentInputConnection?.deleteSurroundingText(1, 0)
-    }
-
-    private fun pressEnter() {
-        val connection = currentInputConnection ?: return
-        val action = currentInputEditorInfo
-            ?.imeOptions
-            ?.and(EditorInfo.IME_MASK_ACTION)
-            ?: EditorInfo.IME_ACTION_NONE
-
-        if (action != EditorInfo.IME_ACTION_NONE &&
-            action != EditorInfo.IME_ACTION_UNSPECIFIED
-        ) {
-            connection.performEditorAction(action)
-        } else {
-            typeText("\n")
+        val chooseButton = Button(this).apply {
+            text = "اختيار لوحة المفاتيح"
+            isAllCaps = false
+            setOnClickListener {
+                val manager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                manager.showInputMethodPicker()
+            }
         }
+
+        // --- إعدادات إضافية ---
+        val prefs = getSharedPreferences("keyboard_prefs", Context.MODE_PRIVATE)
+
+        val soundSwitch = Switch(this).apply {
+            text = "تشغيل صوت الكتابة"
+            isChecked = prefs.getBoolean("sound", true)
+            setPadding(0, 32, 0, 0)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("sound", isChecked).apply()
+            }
+        }
+
+        val vibrateSwitch = Switch(this).apply {
+            text = "تشغيل الاهتزاز عند الضغط"
+            isChecked = prefs.getBoolean("vibrate", true)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("vibrate", isChecked).apply()
+            }
+        }
+
+        val themesLabel = TextView(this).apply {
+            text = "تغيير الثيم (اللون):"
+            textSize = 16f
+            setPadding(0, 32, 0, 8)
+            setTextColor(Color.rgb(33, 37, 41))
+        }
+
+        val themeButton = Button(this).apply {
+            text = "تغيير لون الكيبورد"
+            isAllCaps = false
+            setOnClickListener {
+                val themes = listOf("light", "dark", "green", "blue", "purple")
+                val current = prefs.getString("theme", "light") ?: "light"
+                val nextIndex = (themes.indexOf(current) + 1) % themes.size
+                prefs.edit().putString("theme", themes[nextIndex]).apply()
+                text = "الثيم الحالي: ${themes[nextIndex]}"
+            }
+        }
+
+        layout.addView(title)
+        layout.addView(info)
+        layout.addView(settingsButton, buttonParams())
+        layout.addView(chooseButton, buttonParams())
+        layout.addView(soundSwitch, buttonParams())
+        layout.addView(vibrateSwitch, buttonParams())
+        layout.addView(themesLabel)
+        layout.addView(themeButton, buttonParams())
+
+        scroll.addView(layout)
+        setContentView(scroll)
     }
 
-    private fun dp(value: Int): Int {
-        return (value * resources.displayMetrics.density).toInt()
-    }
+    private fun buttonParams() = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        LinearLayout.LayoutParams.WRAP_CONTENT
+    ).apply { setMargins(0, 12, 0, 12) }
 }
